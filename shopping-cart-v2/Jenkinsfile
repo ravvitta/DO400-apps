@@ -1,8 +1,12 @@
 pipeline {
     agent { node { label 'maven' } }
     environment { APP_NAMESPACE = 'ravivittal-s2i' }
+    parameters {
+        string(name: 'DEPLOY_TAG', description: 'Deploy to Tag')
+    }
     stages {
         stage('Test') {
+	    when { expression { params.DEPLOY_TAG == '' } }
 	    options { timeout(time: 50, unit: 'SECONDS') }
             steps {
                 dir('shopping-cart-v2') {
@@ -12,6 +16,7 @@ pipeline {
         }
 	stage('Build Image') {
     	    environment { QUAY = credentials('QUAY_USER') }
+	    when { expression { params.DEPLOY_TAG == '' } }
     	    steps {
         	dir('shopping-cart-v2') {
             	    sh './scripts/include-container-extensions.sh'
@@ -29,6 +34,8 @@ pipeline {
     	    steps {
         	dir('shopping-cart-v2') {
             	    script {
+		    def TAG_TO_DEPLOY = "BUILD-$BUILD_NUMBER"
+		    if (params.DEPLOY_TAG != '' && params.DEPLOY_TAG != null) {
                     def status = sh(
                     script: "./scripts/tag-exists-in-quay.sh $QUAY_USR/do400-recover latest",
                     returnStatus: true
@@ -37,8 +44,14 @@ pipeline {
                 if (status != 0) {
                     error("Tag not found in Quay!")
                     }
+	        TAG_TO_DEPLOY = params.DEPLOY_TAG
                 } 
-                sh './scripts/redeploy.sh $APP_NAMESPACE'
+		sh """
+                    ./scripts/deploy-image.sh \
+                    -u $QUAY_USR \
+                    -n $APP_NAMESPACE \
+                    -t $TAG_TO_DEPLOY
+                """
               }	
           }  
        }
